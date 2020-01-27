@@ -1,0 +1,57 @@
+name: touch
+version: "1.0"
+author: Kyle Coffey <kylecoffey1999@gmail.com>
+about: >
+    Update the access and modification times of each FILE to the current time
+
+    A FILE argument that does not exist is created empty, unless -c or -h is supplied.
+    
+    A FILE argument string of - is handled specially and causes touch to change the times of the file associated with standard output.
+args:
+    - access:
+        short: a
+        help: Change only the access time
+    - nocreate:
+        short: c
+        long: no-create
+        help: Do not create any files
+    - date:
+        short: d
+        long: date
+        value_name: STRING
+        takes_value: true
+        help: Parse STRING and use it instead of the current time
+    - nodereference:
+        short: h
+        long: no-dereference
+        help: Affect each symbolic link instead of any referenced file
+    - modification:
+        short: m
+        help: Change only the modification time
+    - reference:
+        short: r
+        long: reference
+        value_name: FILE
+        takes_value: true
+        help: Use the times of FILE instead of the current time
+    - timestamp:
+        short: t
+        value_name: STAMP
+        takes_value: true
+        help: Use [[CC]YY]MMDDhhmm[.ss] instead of the current time
+    - time:
+        long: time
+        value_name: WORD
+        takes_value: true
+        help: >
+            change the specified time:
+              if WORD is access, atime, or use: equivalent to -a
+              if WORD is modify or mtime: equivalent to -m
+    - version:
+        long: version
+        help: Output version information and exit
+    - FILE:
+        required: true
+        index: 1
+        multiple: true
+        help: The file(s) to modify
