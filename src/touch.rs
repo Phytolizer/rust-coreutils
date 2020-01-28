@@ -58,7 +58,7 @@ fn parse_timestamp(timestamp: &str) -> Result<DateTime<Local>, &'static str> {
 
     // Missing fields will be substituted with the current date
     let now = Local::today();
-    
+
     // Try and parse the fields now
     let century: i32 = if has_century {
         raw_century.parse::<i32>().map_err(|_| "Invalid century")? * 100
@@ -129,40 +129,33 @@ fn main() -> Result<(), String> {
     let affect_symlinks = matches.is_present("nodereference");
     let (accessed_time, modified_time) = {
         if let Some(date) = matches.value_of("date") {
-            match DateTime::parse_from_rfc3339(date) {
-                Ok(time) => {
-                    let local_time = time.with_timezone(&Local);
-                    (local_time, local_time)
-                }
-                Err(e) => {
-                    return Err(format!("Error parsing {} as an RFC 3339 date: {}", date, e));
-                }
-            }
+            let time = DateTime::parse_from_rfc3339(date)
+                .map_err(|e| format!("Error parsing {} as an RFC 3339 date: {}", date, e))?;
+            let local_time = time.with_timezone(&Local);
+            (local_time, local_time)
         } else if let Some(timestamp) = matches.value_of("timestamp") {
-            match parse_timestamp(timestamp) {
-                Ok(time) => (time, time),
-                Err(e) => {
-                    return Err(format!("Error parsing {} as a timestamp: {}", timestamp, e));
-                }
-            }
+            let time = parse_timestamp(timestamp)
+                .map_err(|e| format!("Error parsing {} as a timestamp: {}", timestamp, e))?;
+            (time, time)
         } else if let Some(reference) = matches.value_of("reference") {
-            let path = PathBuf::from(reference);
-            if path.exists() {
-                if let Ok(metadata) = path.as_path().metadata() {
-                    (
-                        DateTime::<Local>::from(
-                            metadata.accessed().unwrap_or_else(|_| SystemTime::now()),
-                        ),
-                        DateTime::<Local>::from(
-                            metadata.modified().unwrap_or_else(|_| SystemTime::now()),
-                        ),
-                    )
-                } else {
-                    return Err(format!("Cannot stat referenced file {}", reference));
-                }
-            } else {
+            let reference_path = PathBuf::from(reference);
+            if !reference_path.exists() {
                 return Err(format!("Referenced file {} does not exist", reference));
             }
+            let metadata = reference_path
+                .as_path()
+                .metadata()
+                .map_err(|_| format!("Cannot stat referenced file {}", reference))?;
+            (
+                metadata
+                    .accessed()
+                    .unwrap_or_else(|_| SystemTime::now())
+                    .into(),
+                metadata
+                    .modified()
+                    .unwrap_or_else(|_| SystemTime::now())
+                    .into(),
+            )
         } else {
             let now = Local::now();
             (now, now)
