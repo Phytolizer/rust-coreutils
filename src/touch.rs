@@ -12,6 +12,8 @@ use clap::App;
 use libc::timespec;
 use std::env::current_exe;
 use std::ffi::CString;
+use std::fmt;
+use std::fmt::Debug;
 use std::fs::File;
 use std::io;
 use std::path::PathBuf;
@@ -26,14 +28,36 @@ struct TouchFlags {
     modified_time: DateTime<Local>,
 }
 
-fn parse_timestamp(timestamp: &str) -> Result<DateTime<Local>, &'static str> {
+struct TouchError {
+    message: String,
+}
+
+impl Debug for TouchError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "touch: {}", self.message)?;
+        Ok(())
+    }
+}
+
+impl<T> From<T> for TouchError
+where
+    T: ToString,
+{
+    fn from(error: T) -> Self {
+        TouchError {
+            message: error.to_string(),
+        }
+    }
+}
+
+fn parse_timestamp(timestamp: &str) -> Result<DateTime<Local>, TouchError> {
     let chars: Vec<char> = timestamp.chars().collect();
     // the "has_" flags are checking for optional parts of the timestamp string.
     // Not much validation is done here until we try to parse integers.
     let has_seconds = chars.contains(&'.');
     let expected_len = 8 + if has_seconds { 3 } else { 0 };
     if timestamp.len() < expected_len {
-        return Err("Timestamp is too short");
+        return Err("timestamp is too short".into());
     }
     let has_century = chars.len() == expected_len + 4;
     let has_year = has_century || chars.len() == expected_len + 2;
@@ -61,22 +85,22 @@ fn parse_timestamp(timestamp: &str) -> Result<DateTime<Local>, &'static str> {
 
     // Try and parse the fields now
     let century: i32 = if has_century {
-        raw_century.parse::<i32>().map_err(|_| "Invalid century")? * 100
+        raw_century.parse::<i32>().map_err(|_| "invalid century")? * 100
     } else {
         now.year() / 100 * 100
     };
     let year: i32 = if has_year {
-        raw_year.parse().map_err(|_| "Invalid year")?
+        raw_year.parse().map_err(|_| "invalid year")?
     } else {
         now.year() % 100
     };
 
-    let month: u32 = raw_month.parse().map_err(|_| "Invalid month")?;
-    let day: u32 = raw_day.parse().map_err(|_| "Invalid day")?;
-    let hours: u32 = raw_hours.parse().map_err(|_| "Invalid hour")?;
-    let minutes: u32 = raw_minutes.parse().map_err(|_| "Invalid minute")?;
+    let month: u32 = raw_month.parse().map_err(|_| "invalid month")?;
+    let day: u32 = raw_day.parse().map_err(|_| "invalid day")?;
+    let hours: u32 = raw_hours.parse().map_err(|_| "invalid hour")?;
+    let minutes: u32 = raw_minutes.parse().map_err(|_| "invalid minute")?;
     let seconds: u32 = if has_seconds {
-        raw_seconds.parse::<u32>().map_err(|_| "Invalid second")?
+        raw_seconds.parse::<u32>().map_err(|_| "invalid second")?
     } else {
         0
     };
@@ -87,11 +111,11 @@ fn parse_timestamp(timestamp: &str) -> Result<DateTime<Local>, &'static str> {
     {
         Ok(Local.from_local_datetime(&date).unwrap())
     } else {
-        Err("Invalid date")
+        Err("invalid date".into())
     }
 }
 
-fn main() -> Result<(), String> {
+fn main() -> Result<(), TouchError> {
     let yaml = load_yaml!("touch.yaml");
     let matches = App::from(yaml).get_matches();
     if matches.is_present("version") {
@@ -111,7 +135,7 @@ fn main() -> Result<(), String> {
             match time {
                 "access" | "atime" | "use" => (true, false),
                 "modify" | "mtime" => (false, true),
-                _ => return Err(format!("Invalid argument to --time: {}", time)),
+                _ => return Err(format!("invalid argument to --time: {}", time).into()),
             }
         } else {
             (
@@ -120,7 +144,7 @@ fn main() -> Result<(), String> {
             )
         };
     if change_only_access_time && change_only_modification_time {
-        return Err("-a and -m are mutually exclusive".to_owned());
+        return Err("-a and -m are mutually exclusive".into());
     }
     let change_access_time = !change_only_modification_time || change_only_access_time;
     let change_modification_time = !change_only_access_time || change_only_modification_time;
@@ -130,22 +154,22 @@ fn main() -> Result<(), String> {
     let (accessed_time, modified_time) = {
         if let Some(date) = matches.value_of("date") {
             let time = DateTime::parse_from_rfc3339(date)
-                .map_err(|e| format!("Error parsing {} as an RFC 3339 date: {}", date, e))?;
+                .map_err(|e| format!("error parsing {} as an RFC 3339 date: {}", date, e))?;
             let local_time = time.with_timezone(&Local);
             (local_time, local_time)
         } else if let Some(timestamp) = matches.value_of("timestamp") {
             let time = parse_timestamp(timestamp)
-                .map_err(|e| format!("Error parsing {} as a timestamp: {}", timestamp, e))?;
+                .map_err(|e| format!("error parsing {} as a timestamp: {:?}", timestamp, e))?;
             (time, time)
         } else if let Some(reference) = matches.value_of("reference") {
             let reference_path = PathBuf::from(reference);
             if !reference_path.exists() {
-                return Err(format!("Referenced file {} does not exist", reference));
+                return Err(format!("referenced file {} does not exist", reference).into());
             }
             let metadata = reference_path
                 .as_path()
                 .metadata()
-                .map_err(|_| format!("Cannot stat referenced file {}", reference))?;
+                .map_err(|_| format!("cannot stat referenced file {}", reference))?;
             (
                 metadata
                     .accessed()
@@ -162,7 +186,7 @@ fn main() -> Result<(), String> {
         }
     };
     if !matches.is_present("FILE") {
-        return Err("Must specify at least one file".to_owned());
+        return Err("must specify at least one file".into());
     }
     let files: Vec<&str> = matches.values_of("FILE").unwrap().collect();
     let flags = TouchFlags {
@@ -179,7 +203,7 @@ fn main() -> Result<(), String> {
     Ok(())
 }
 
-fn touch(file_name: &str, flags: &TouchFlags) -> Result<(), String> {
+fn touch(file_name: &str, flags: &TouchFlags) -> Result<(), TouchError> {
     if !PathBuf::from(file_name).exists() {
         if flags.no_creating_files {
             println!(
@@ -188,7 +212,7 @@ fn touch(file_name: &str, flags: &TouchFlags) -> Result<(), String> {
             );
             return Ok(());
         } else if let Err(e) = File::create(PathBuf::from(file_name)) {
-            return Err(e.to_string());
+            return Err(e.into());
         }
     }
     let atime = timespec {
@@ -223,10 +247,7 @@ fn touch(file_name: &str, flags: &TouchFlags) -> Result<(), String> {
     };
     if res != 0 {
         let error = io::Error::last_os_error();
-        return Err(format!(
-            "Could not set time(s) for {}: {}",
-            file_name, error
-        ));
+        return Err(format!("could not set time(s) for {}: {}", file_name, error).into());
     }
     Ok(())
 }
