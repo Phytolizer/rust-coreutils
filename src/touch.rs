@@ -195,7 +195,7 @@ fn touch(file_name: &str, flags: &TouchFlags) -> Result<(), String> {
             );
             return Ok(());
         } else if let Err(e) = File::create(PathBuf::from(file_name)) {
-            return Err(format!("{}", e));
+            return Err(e.to_string());
         }
     }
     let atime = timespec {
