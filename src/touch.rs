@@ -52,62 +52,38 @@ fn parse_timestamp(timestamp: &str) -> Result<DateTime<Local>, &'static str> {
     // No more shifting here, it's unnecessary
     let raw_month = &rest[0..2];
     let raw_day = &rest[2..4];
-    let raw_hour = &rest[4..6];
-    let raw_minute = &rest[6..8];
+    let raw_hours = &rest[4..6];
+    let raw_minutes = &rest[6..8];
     let raw_seconds = if has_seconds { &rest[9..] } else { "" };
+
     // Missing fields will be substituted with the current date
     let now = Local::today();
+    
     // Try and parse the fields now
     let century: i32 = if has_century {
-        if let Ok(century) = raw_century.parse::<i32>() {
-            century * 100
-        } else {
-            return Err("Invalid century");
-        }
+        raw_century.parse::<i32>().map_err(|_| "Invalid century")? * 100
     } else {
         now.year() / 100 * 100
     };
     let year: i32 = if has_year {
-        if let Ok(year) = raw_year.parse() {
-            year
-        } else {
-            return Err("Invalid year");
-        }
+        raw_year.parse().map_err(|_| "Invalid year")?
     } else {
         now.year() % 100
     };
-    let month: u32 = if let Ok(month) = raw_month.parse() {
-        month
-    } else {
-        return Err("Invalid month");
-    };
-    let day: u32 = if let Ok(day) = raw_day.parse() {
-        day
-    } else {
-        return Err("Invalid day");
-    };
-    let hour: u32 = if let Ok(hour) = raw_hour.parse() {
-        hour
-    } else {
-        return Err("Invalid hour");
-    };
-    let minute: u32 = if let Ok(minute) = raw_minute.parse() {
-        minute
-    } else {
-        return Err("Invalid minute");
-    };
-    let second: u32 = if has_seconds {
-        if let Ok(second) = raw_seconds.parse::<u32>() {
-            second
-        } else {
-            return Err("Invalid second");
-        }
+
+    let month: u32 = raw_month.parse().map_err(|_| "Invalid month")?;
+    let day: u32 = raw_day.parse().map_err(|_| "Invalid day")?;
+    let hours: u32 = raw_hours.parse().map_err(|_| "Invalid hour")?;
+    let minutes: u32 = raw_minutes.parse().map_err(|_| "Invalid minute")?;
+    let seconds: u32 = if has_seconds {
+        raw_seconds.parse::<u32>().map_err(|_| "Invalid second")?
     } else {
         0
     };
+
     // Done! Construct a DateTime (and also check none of the numbers were OOB)
     if let Some(date) = NaiveDate::from_ymd_opt(century + year, month, day)
-        .and_then(|d| d.and_hms_opt(hour, minute, second))
+        .and_then(|d| d.and_hms_opt(hours, minutes, seconds))
     {
         Ok(Local.from_local_datetime(&date).unwrap())
     } else {
