@@ -51,7 +51,6 @@ args:
         long: version
         help: Output version information and exit
     - FILE:
-        required: true
         index: 1
         multiple: true
         help: The file(s) to modify

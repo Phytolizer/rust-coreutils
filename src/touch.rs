@@ -8,19 +8,18 @@ use chrono::DateTime;
 use chrono::Datelike;
 use chrono::Local;
 use chrono::NaiveDate;
-use chrono::Timelike;
 use clap::App;
 use libc::timespec;
 use std::env::current_exe;
 use std::ffi::CString;
+use std::fs::File;
 use std::io;
 use std::path::PathBuf;
 use std::time::SystemTime;
-use std::fs::File;
 
 struct TouchFlags {
-    change_only_access_time: bool,
-    change_only_modification_time: bool,
+    change_access_time: bool,
+    change_modification_time: bool,
     affect_symlinks: bool,
     no_creating_files: bool,
     accessed_time: DateTime<Local>,
@@ -29,6 +28,8 @@ struct TouchFlags {
 
 fn parse_timestamp(timestamp: &str) -> Result<DateTime<Local>, &'static str> {
     let chars: Vec<char> = timestamp.chars().collect();
+    // the "has_" flags are checking for optional parts of the timestamp string.
+    // Not much validation is done here until we try to parse integers.
     let has_seconds = chars.contains(&'.');
     let expected_len = 8 + if has_seconds { 3 } else { 0 };
     if timestamp.len() < expected_len {
@@ -36,6 +37,8 @@ fn parse_timestamp(timestamp: &str) -> Result<DateTime<Local>, &'static str> {
     }
     let has_century = chars.len() == expected_len + 4;
     let has_year = has_century || chars.len() == expected_len + 2;
+    // Take slices for the significant parts of the timestamp to clean up later code.
+    // "Shift" the input by using a `rest` slice.
     let (raw_century, rest) = if has_century {
         (&timestamp[0..2], &timestamp[2..])
     } else {
@@ -46,12 +49,15 @@ fn parse_timestamp(timestamp: &str) -> Result<DateTime<Local>, &'static str> {
     } else {
         ("", rest)
     };
+    // No more shifting here, it's unnecessary
     let raw_month = &rest[0..2];
     let raw_day = &rest[2..4];
     let raw_hour = &rest[4..6];
     let raw_minute = &rest[6..8];
     let raw_seconds = if has_seconds { &rest[9..] } else { "" };
-    let now = Local::now();
+    // Missing fields will be substituted with the current date
+    let now = Local::today();
+    // Try and parse the fields now
     let century: i32 = if has_century {
         if let Ok(century) = raw_century.parse::<i32>() {
             century * 100
@@ -97,8 +103,9 @@ fn parse_timestamp(timestamp: &str) -> Result<DateTime<Local>, &'static str> {
             return Err("Invalid second");
         }
     } else {
-        now.second()
+        0
     };
+    // Done! Construct a DateTime (and also check none of the numbers were OOB)
     if let Some(date) = NaiveDate::from_ymd_opt(century + year, month, day)
         .and_then(|d| d.and_hms_opt(hour, minute, second))
     {
@@ -139,6 +146,8 @@ fn main() -> Result<(), String> {
     if change_only_access_time && change_only_modification_time {
         return Err("-a and -m are mutually exclusive".to_owned());
     }
+    let change_access_time = !change_only_modification_time || change_only_access_time;
+    let change_modification_time = !change_only_access_time || change_only_modification_time;
 
     let no_creating_files = matches.is_present("nocreate");
     let affect_symlinks = matches.is_present("nodereference");
@@ -183,10 +192,13 @@ fn main() -> Result<(), String> {
             (now, now)
         }
     };
+    if !matches.is_present("FILE") {
+        return Err("Must specify at least one file".to_owned());
+    }
     let files: Vec<&str> = matches.values_of("FILE").unwrap().collect();
     let flags = TouchFlags {
-        change_only_access_time,
-        change_only_modification_time,
+        change_access_time,
+        change_modification_time,
         affect_symlinks,
         no_creating_files,
         accessed_time,
@@ -212,7 +224,7 @@ fn touch(file_name: &str, flags: &TouchFlags) -> Result<(), String> {
     }
     let atime = timespec {
         tv_sec: flags.accessed_time.timestamp(),
-        tv_nsec: if !flags.change_only_modification_time {
+        tv_nsec: if !flags.change_modification_time {
             flags.accessed_time.timestamp_subsec_nanos() as i64
         } else {
             unsafe { C_UTIME_OMIT as i64 }
@@ -220,7 +232,7 @@ fn touch(file_name: &str, flags: &TouchFlags) -> Result<(), String> {
     };
     let mtime = timespec {
         tv_sec: flags.modified_time.timestamp(),
-        tv_nsec: if !flags.change_only_access_time {
+        tv_nsec: if !flags.change_access_time {
             flags.modified_time.timestamp_subsec_nanos() as i64
         } else {
             unsafe { C_UTIME_OMIT as i64 }

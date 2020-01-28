@@ -17,3 +17,6 @@ features = ["yaml"]
 [[bin]]
 name = "touch"
 path = "src/touch.rs"
+
+[profile.release]
+opt-level = "z"
