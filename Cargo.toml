@@ -24,4 +24,3 @@ path = "src/arglex/lib.rs"
 
 [profile.release]
 opt-level = "z"
-debug = true
