@@ -9,21 +9,17 @@ use std::process::exit;
 use std::slice::Iter;
 
 const HELP: &str = "
-touch version 1.0.0
-By Kyle Coffey <kylecoffey1999@gmail.com>
-
+Usage: touch [option]... <FILE> ...
 Update the access and modification times of each FILE to the current time.
 
 A FILE argument that does not exist is created empty, unless -c or -h is supplied.
 
 A FILE argument string of - is handled specially and causes touch to change the times of the file associated with standard output.
 
-Usage: touch [options] <FILE> ...
-
 Options:
   -a                        Change only the access time
   -c, --no-create           Do not create any files
-  -d, --date <STRING>       Parse STRING and use it instead of the current time
+  -d, --date <STRING>       Parse STRING as a RFC3339 date and use it instead of the current time
   -h, --no-dereference      Affect each symbolic link instead of any referenced file
   -m                        Change only the modification time
   -r, --reference <FILE>    Use the times of FILE instead of the current time
