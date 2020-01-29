@@ -58,7 +58,7 @@ pub struct Args {
 }
 
 impl Args {
-    pub fn new() -> Self {
+    fn new() -> Self {
         Args {
             access: false,
             no_create: false,
