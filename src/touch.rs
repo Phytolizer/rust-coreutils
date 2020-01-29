@@ -2,7 +2,9 @@
 extern crate clap;
 
 mod c_bindings;
-use c_bindings::*;
+use c_bindings::AT_FDCWD;
+use c_bindings::AT_SYMLINK_NOFOLLOW;
+use c_bindings::UTIME_OMIT;
 use chrono::offset::TimeZone;
 use chrono::DateTime;
 use chrono::Datelike;
@@ -18,6 +20,7 @@ use std::fs::File;
 use std::io;
 use std::path::PathBuf;
 use std::time::SystemTime;
+use syscall::syscall;
 
 struct TouchFlags {
     change_access_time: bool,
@@ -217,35 +220,36 @@ fn touch(file_name: &str, flags: &TouchFlags) -> Result<(), TouchError> {
     }
     let atime = timespec {
         tv_sec: flags.accessed_time.timestamp(),
-        tv_nsec: if !flags.change_modification_time {
+        tv_nsec: if !flags.change_modification_time || flags.change_access_time {
             flags.accessed_time.timestamp_subsec_nanos() as i64
         } else {
-            unsafe { C_UTIME_OMIT as i64 }
+            UTIME_OMIT as i64
         },
     };
     let mtime = timespec {
         tv_sec: flags.modified_time.timestamp(),
-        tv_nsec: if !flags.change_access_time {
+        tv_nsec: if !flags.change_access_time || flags.change_modification_time {
             flags.modified_time.timestamp_subsec_nanos() as i64
         } else {
-            unsafe { C_UTIME_OMIT as i64 }
+            UTIME_OMIT as i64
         },
     };
     let c_file_name = CString::new(file_name).unwrap().into_bytes_with_nul();
     let flag = if flags.affect_symlinks {
         0
     } else {
-        unsafe { C_AT_SYMLINK_NOFOLLOW as i32 }
+        AT_SYMLINK_NOFOLLOW
     };
-    let res = unsafe {
-        utimensat(
-            C_AT_FDCWD,
+    let ret = unsafe {
+        syscall!(
+            UTIMENSAT,
+            AT_FDCWD,
             c_file_name.as_ptr(),
             [atime, mtime].as_ptr(),
-            flag,
+            flag
         )
     };
-    if res != 0 {
+    if ret != 0 {
         let error = io::Error::last_os_error();
         return Err(format!("could not set time(s) for {}: {}", file_name, error).into());
     }
