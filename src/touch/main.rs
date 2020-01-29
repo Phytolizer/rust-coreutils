@@ -1,18 +1,16 @@
-#[macro_use]
-extern crate clap;
-
+mod args;
 mod c_bindings;
 use c_bindings::AT_FDCWD;
 use c_bindings::AT_SYMLINK_NOFOLLOW;
 use c_bindings::UTIME_OMIT;
+
 use chrono::offset::TimeZone;
 use chrono::DateTime;
 use chrono::Datelike;
 use chrono::Local;
 use chrono::NaiveDate;
-use clap::App;
 use libc::timespec;
-use std::env::current_exe;
+use std::env;
 use std::ffi::CString;
 use std::fmt;
 use std::fmt::Debug;
@@ -84,18 +82,18 @@ fn parse_timestamp(timestamp: &str) -> Result<DateTime<Local>, TouchError> {
     let raw_seconds = if has_seconds { &rest[9..] } else { "" };
 
     // Missing fields will be substituted with the current date
-    let now = Local::today();
+    let today = Local::today();
 
     // Try and parse the fields now
     let century: i32 = if has_century {
         raw_century.parse::<i32>().map_err(|_| "invalid century")? * 100
     } else {
-        now.year() / 100 * 100
+        today.year() / 100 * 100
     };
     let year: i32 = if has_year {
         raw_year.parse().map_err(|_| "invalid year")?
     } else {
-        now.year() % 100
+        today.year() % 100
     };
 
     let month: u32 = raw_month.parse().map_err(|_| "invalid month")?;
@@ -119,53 +117,37 @@ fn parse_timestamp(timestamp: &str) -> Result<DateTime<Local>, TouchError> {
 }
 
 fn main() -> Result<(), TouchError> {
-    let yaml = load_yaml!("touch.yaml");
-    let matches = App::from(yaml).get_matches();
-    if matches.is_present("version") {
-        println!(
-            "{} version 1.0.0",
-            current_exe()
-                .unwrap()
-                .file_name()
-                .unwrap()
-                .to_str()
-                .unwrap()
-        );
-        return Ok(());
-    }
-    let (change_only_access_time, change_only_modification_time) =
-        if let Some(time) = matches.value_of("time") {
-            match time {
-                "access" | "atime" | "use" => (true, false),
-                "modify" | "mtime" => (false, true),
-                _ => return Err(format!("invalid argument to --time: {}", time).into()),
-            }
-        } else {
-            (
-                matches.is_present("access"),
-                matches.is_present("modification"),
-            )
-        };
+    let args =
+        args::parse(env::args().skip(1).collect()).map_err(|e| -> TouchError { e.into() })?;
+    let (change_only_access_time, change_only_modification_time) = if let Some(time) = args.time {
+        match time.as_str() {
+            "access" | "atime" | "use" => (true, false),
+            "modify" | "mtime" => (false, true),
+            _ => return Err(format!("invalid argument to --time: {}", time).into()),
+        }
+    } else {
+        (args.access, args.modification)
+    };
     if change_only_access_time && change_only_modification_time {
         return Err("-a and -m are mutually exclusive".into());
     }
     let change_access_time = !change_only_modification_time || change_only_access_time;
     let change_modification_time = !change_only_access_time || change_only_modification_time;
 
-    let no_creating_files = matches.is_present("nocreate");
-    let affect_symlinks = matches.is_present("nodereference");
+    let no_creating_files = args.no_create;
+    let affect_symlinks = args.no_dereference;
     let (accessed_time, modified_time) = {
-        if let Some(date) = matches.value_of("date") {
-            let time = DateTime::parse_from_rfc3339(date)
+        if let Some(date) = args.date {
+            let time = DateTime::parse_from_rfc3339(&date)
                 .map_err(|e| format!("error parsing {} as an RFC 3339 date: {}", date, e))?;
             let local_time = time.with_timezone(&Local);
             (local_time, local_time)
-        } else if let Some(timestamp) = matches.value_of("timestamp") {
-            let time = parse_timestamp(timestamp)
+        } else if let Some(timestamp) = args.timestamp {
+            let time = parse_timestamp(&timestamp)
                 .map_err(|e| format!("error parsing {} as a timestamp: {:?}", timestamp, e))?;
             (time, time)
-        } else if let Some(reference) = matches.value_of("reference") {
-            let reference_path = PathBuf::from(reference);
+        } else if let Some(reference) = args.reference {
+            let reference_path = PathBuf::from(&reference);
             if !reference_path.exists() {
                 return Err(format!("referenced file {} does not exist", reference).into());
             }
@@ -188,10 +170,10 @@ fn main() -> Result<(), TouchError> {
             (now, now)
         }
     };
-    if !matches.is_present("FILE") {
+    if args.files.is_empty() {
         return Err("must specify at least one file".into());
     }
-    let files: Vec<&str> = matches.values_of("FILE").unwrap().collect();
+    let files: Vec<String> = args.files;
     let flags = TouchFlags {
         change_access_time,
         change_modification_time,
@@ -201,7 +183,7 @@ fn main() -> Result<(), TouchError> {
         modified_time,
     };
     for file in files {
-        touch(file, &flags)?;
+        touch(&file, &flags)?;
     }
     Ok(())
 }

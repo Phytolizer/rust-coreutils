@@ -14,13 +14,13 @@ chrono = "0.4"
 libc = "0.2"
 syscall = "0.2.1"
 
-[dependencies.clap]
-version = "2.33"
-features = ["yaml"]
-
 [[bin]]
 name = "touch"
-path = "src/touch.rs"
+path = "src/touch/main.rs"
+
+[lib]
+name = "arglex"
+path = "src/arglex/lib.rs"
 
 [profile.release]
 opt-level = "z"
